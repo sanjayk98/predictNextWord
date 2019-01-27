@@ -21,4 +21,11 @@ The goal of this exercise is to create a product to highlight the prediction alg
     * Rstudio Presentation
     * html file output
    
+  # User Guide
   
+The Sinny Apps <https://sanjayk98.shinyapps.io/NextWord/>
+
+- Type partial word, it will predict the complete word (Ex:lov->love)
+- Type one word, it will predict next pair (Ex: Happy Holiday)
+- Type partial sentence, it will predict next word
+- It shows top 3 likely words and includes log probablity and N-Gram being used
