@@ -6,7 +6,9 @@ The goal of this exercise is to create a product to highlight the prediction alg
     
     
   # Included files
+  
   * Shinny Apps 
+  
      ** nextword/UI.R Client Code
      ** nextword/Server.R Server code
      ** nextword/global.R global parameters 
