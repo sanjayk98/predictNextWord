@@ -1,0 +1,741 @@
+---
+title: "Data Science Capstone-Final Project " 
+author: "sanjay kumar"
+date: "January 27, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#setup inital directory and global option
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir="C:/Users/sanjayx/Desktop/coursera/swiftkey/Coursera-SwiftKey/final/en_US")
+```
+
+## Data Science Capstone
+
+The goal of this task is to get familiar with the databases and do the necessary cleaning. Tasks to accomplish
+
+    Tokenization - identifying appropriate tokens such as words, punctuation, and numbers. Writing a function that takes a file as input and returns a tokenized version of it.
+    Profanity filtering - removing profanity and other words you do not want to predict.
+    Frequency analysis- We will do frequency analysis to understand which words frequently appear in document
+    Coverage Analysis-way to increase the coverage -- identifying words that may not be in the corpora or using a smaller number of words in the dictionary to cover the same number of phrases?
+    Model: We used conditional probablilty and its approximation to compute the probablity of observed data. We also used laplace smoothing function to take care of unobserved data
+    Training: We divided data into 20 samples. We used 15 samples for training and remoaning 5 samples for test and validation
+    Prediction: We first try to predict based on 4-gram and if nothing is found then we recussively switch to3-gram, 2-gram and 1-gram. At most last 4 words of sentence is taken into account for prediction
+  
+    
+## Global Environment Variable
+We set global environment variable here
+
+```{r,message=FALSE }
+ # initial read
+  destfile1<-"C:/Users/sanjayx/Desktop/coursera/swiftkey/Coursera-SwiftKey/final/en_US/model_unigram.RDS"
+   destfile2<-"C:/Users/sanjayx/Desktop/coursera/swiftkey/Coursera-SwiftKey/final/en_US/model_bigram.RDS"
+    destfile3<-"C:/Users/sanjayx/Desktop/coursera/swiftkey/Coursera-SwiftKey/final/en_US/model_trigram.RDS"
+     destfile4<-"C:/Users/sanjayx/Desktop/coursera/swiftkey/Coursera-SwiftKey/final/en_US/model_quadgram.RDS"
+V<-1000000 #model parameter for laplace smoothing
+delta<-0.75 #model parameter for laplace smoothing     
+set.seed(2019)
+```
+
+# Data Summary and Sample Generation
+There are more than 2 million rows as shown by length(readLines(ftwitter)). we will do random sampling to read 5% of rows each time. Raw sample will be wriiten into 20 samples files. We generate 20 samples files for each type of file like blog, twitter and news
+
+
+```{r,message=FALSE }
+# Generates 20 samples file with 5% random data in each
+for (i in 1:1) {
+  
+  ftwitter<-file("en_US.twitter.txt", "r")
+  twitter<-readLines(ftwitter,skipNul = TRUE)
+  stwitter <- twitter[rbinom(length(twitter) * 0.05, length(twitter), 0.5)]
+  file_name<-paste0("twitter",i,".txt")
+  writeLines(stwitter, con=file_name)
+  close(ftwitter)
+
+  fnews<-file("en_US.news.txt", "r")
+  news<-readLines(fnews,skipNul = TRUE,warn=FALSE)
+  snews <- twitter[rbinom(length(news) * 0.05, length(news), 0.5)]
+  file_name<-paste0("news",i,".txt")
+  writeLines(snews, con=file_name)
+  close(fnews)
+
+  fblogs<-file("en_US.blogs.txt", "r")
+  blogs<-readLines(fblogs,skipNul = TRUE)
+  sblogs <- twitter[rbinom(length(blogs) * 0.05, length(news), 0.5)]
+  file_name<-paste0("blogs",i,".txt")
+  writeLines(sblogs, con=file_name)
+  close(fblogs)
+}
+
+#Let us take the last sample for data exloration
+data<-paste(sblogs, snews, stwitter)
+# some stats for data
+file_name<- c("en_us.twitter.txt","en_us.news.txt","en_us.blogs.txt")
+file_size_in_MB<- c(file.size("en_us.twitter.txt")/1048576,file.size("en_us.news.txt")/1048576,file.size("en_us.blogs.txt")/1048576)
+line_count<-c(length(twitter),length(news),length(blogs))
+word_count<-c(sum(sapply(strsplit(twitter, " "), length)),sum(sapply(strsplit(news, " "), length)),sum(sapply(strsplit(blogs, " "), length)))
+summary_data<-data.frame(file_name,file_size_in_MB,line_count, word_count)
+print(summary_data)
+
+```
+
+## Data Cleaning
+We will remove non-ascii character, remote profane words, remove numberic and step words to get a clean list of words. We also tried to stem words but the result was not great and therefore, we have commented word steming code for now
+
+```{r,message=FALSE}
+
+library(dplyr)
+library(backports)
+library(tidytext)   
+library(stringr)
+library(tibble)
+library(SnowballC)
+
+clean_data<-function(data){
+    d <- data_frame(txt=data)
+    url_words <- data_frame(word = c("https","http"))
+    d$txt <- gsub("[^\x20-\x7E]", "", d$txt) #remove non-ascii
+    tidy_dataset <- d %>%
+      unnest_tokens(output = word, input = txt) %>% #seperate as words
+      filter(!str_detect(word, "^[0-9]*$"))  %>%  # remove numbers
+      anti_join(get_stopwords(),by="word")  %>%  # remove snowball stop words
+      anti_join(url_words,by="word")     # remove some urls
+      #mutate(word = SnowballC::wordStem(word))    # apply a stemming procedure
+    d<-data_frame(txt=unlist(tidy_dataset))
+return(d)
+}
+# clean last sample data
+d<-clean_data(data)
+
+
+```
+## Data Exploration
+Her we do freuqency analysis for 1-Gram, 2-Gram, 3-Gram and 4-Gram to understand the data and trend
+
+```{r,message=FALSE}
+
+library(ggplot2)
+
+# 1-gram
+unigram<-function(d){
+      d1<-d %>% 
+        unnest_tokens(word,txt) %>%
+        count(word, sort = TRUE)
+    return(d1)
+}
+
+d1<-unigram(d)
+
+# plot top 10
+d1 %>% top_n(10) %>% ggplot(aes(word,n))+
+          geom_bar(stat="identity" , fill = "red") +
+          labs(x = "Word", y = "Frequency") +
+          coord_flip() +
+           ggtitle("Top 10 frequent word for 1-Gram" )
+
+# 2-gram
+bigram<-function(d){
+    d2<-d %>% 
+        unnest_tokens(bigram,txt, token = "ngrams", n = 2) %>%
+        count(bigram, sort = TRUE)
+    return(d2)
+  }
+
+d2<-bigram(d)
+#plot top 10
+d2 %>% top_n(10) %>% ggplot(aes(bigram,n))+
+          geom_bar(stat="identity" , fill = "blue") +
+          labs(x = "Word", y = "Frequency") +
+          coord_flip() +
+           ggtitle("Top 10 frequent word for 2-Gram" )
+
+#3-gram
+
+trigram<-function(d3) {
+          d3<-d %>%
+              unnest_tokens(trigram,txt, token = "ngrams", n = 3)  %>%
+              count(trigram, sort = TRUE)
+        return(d3)
+      }
+
+d3<-trigram(d)
+
+d3 %>% top_n(10) %>% ggplot(aes(trigram,n))+
+          geom_bar(stat="identity" , fill = "green") +
+          labs(x = "Word", y = "Frequency") +
+          coord_flip() +
+           ggtitle("Top 10 frequent word for 3-Gram" )
+
+
+#4-gram
+quadgram<-function(d4) {
+d4<-d %>%
+  unnest_tokens(fourgram,txt, token = "ngrams", n = 4)  %>%
+        count(fourgram, sort = TRUE)
+return(d4)
+}
+d4<-quadgram(d)
+d4 %>% top_n(10) %>% ggplot(aes(fourgram,n))+
+          geom_bar(stat="identity" , fill = "green") +
+          labs(x = "Word", y = "Frequency") +
+          coord_flip() +
+           ggtitle("Top 10 frequent word for 4-Gram" )
+
+
+```
+
+## Coverage analysis
+Here we are trying to understand how much of sample data is representative of overall training set
+
+```{r,message=FALSE}
+getThreshold<-function(data,percentage){
+total<-sum(data[,2])
+coverage<-percentage*total/100
+current_value<-0
+for (i in 1:nrow(data))
+{
+  if (current_value > coverage) {
+    return(i)
+  }
+  current_value<-current_value+data[i,2]
+}
+return(nrow(data))
+}
+getThreshold(d1,50)
+getThreshold(d1,90)
+x <- seq(10, 100, by = 10)
+y<-0
+for (i in 1:10) {
+y[i]<-getThreshold(d1,x[i])
+}
+qplot(x,y,geom=c("line"))
+
+```
+
+
+
+# N-Gram Language Model
+We will comute the probablity of next word based on previous one.
+probablity(word1,word2)=probablity(word1)*probablity(word2!word1)
+probability(word1,word2,word3)=probablity(word1)*probablity(word2!word1)*probablity(word3,word2,word1)
+General formula
+P(x1, x2, ..., xn) = P(x1)P(x2|x1)...P(xn|x1,...xn-1)
+
+
+\[
+\begin{eqnarray}
+P(w_{a}) & = & \frac{C(w_{a})}{N}\\
+P(w_{a}|w_{b}) & = & \frac{C(w_{a},w_{b})}{\sum_{w_{b}}C(w_{a},w_{b})}\\
+P(w_{a}|w_{b}) & \sim &  \frac{C(w_{a},w_{b})}{C(w_{b})}\\
+\end{eqnarray}
+\]
+where N is the total number of words in the training set and c(·) denotes count of the word or word sequence in the training data 
+The probability will be undefined for words which was never seen in corpus. We apply laplace smoothing as following for correcting probablity for unseen data
+\[ \begin{eqnarray}
+P(w_{a}) & = & \frac{C(w_{a})+\delta}{N+V*\delta} 
+\end{eqnarray}
+\]
+
+
+```{r,message=FALSE}
+
+# helper function
+
+library(tidyr)
+library(data.table)
+
+#Returns probability of unigram 
+get_unigram_words<-function(sentence){
+                data<-data_frame(word=unlist(sentence))
+                data1 <- data.table(data) %>%
+                unnest_tokens(word1,word, token = "ngrams", n = 1) 
+                
+                data1<-copy(data1)
+                data1<-data1[,.N,word1]
+                #V<-nrow(data1)
+                total_count<-sum(data1$N)
+                
+                data1<-data1 %>% mutate(prob=(log((N+delta)-log(V*delta+total_count))))  %>%      select(-N)
+                
+                #data1$prob<-mapply(pword1,data1$word1,data1)
+                #size<-nrow(data1)
+                #data1<-aggregate(data1[, 2], list(data1$word1), mean)
+                #V<-nrow(data1)
+                #names(data1)<-c("word1","prob")
+                data1<-unique(data1)
+                setorder(data1,-prob)
+              return(list(total_count,data1))
+}
+
+#return list of matrix with n rows and 2 column
+#Returns probability of unigram 
+get_bigram_words<-function(sentence){
+                data<-data_frame(word=unlist(sentence))
+                data1 <- data.table(data) %>%
+                unnest_tokens(bigram,word, token = "ngrams", n = 2) %>%
+                separate(bigram, c("word1", "word2"), sep = " ") 
+                #names(data1)<-c("word1","word2","word1_count","word2_count")
+                data1<-copy(data1)
+                data1<-data1[,  word1_count:= (.N), by = .(word1)]
+                data1<-data1[, word2_count := (.N), by = .(word1,word2)]
+                
+                #data1<-data1[, `:=` (word1_count = .N), by = .(word1)]
+                #data1<-data1[, `:=` (word2_count = .N), by = .(word1,word2)]
+                
+               # V<-nrow(data1)
+                total_count<-sum(data1$word2_count)
+                
+                data1<-data1 %>% mutate(prob=(log((word2_count+delta)-log(V*delta+word1_count))) ) %>%      select(-c("word1_count","word2_count"))
+                data1<-unique(data1)
+               setorder(data1,-prob)
+              return(list(total_count,data1))
+}
+#return list of matrix with n rows and 3 column
+get_trigram_words<-function(sentence){
+               data<-data_frame(word=unlist(sentence))
+                data1 <- data.table(data) %>%
+                unnest_tokens(trigram,word, token = "ngrams", n = 3) %>%
+                separate(trigram, c("word1", "word2","word3"), sep = " ")
+                
+                data1<-copy(data1)
+                data1<-data1[, `:=` (word2_count = .N), by = .(word1,word2)]
+                data1<-data1[, `:=` (word3_count = .N), by = .(word1,word2,word3)]
+                
+                #V<-nrow(data1)
+                total_count<-sum(data1$word3_count)
+                
+                data1<-data1 %>% mutate(prob=(log((word3_count+delta)-log(V*delta+word2_count))))  %>%      select(-c("word2_count","word3_count"))
+                data1<-unique(data1)
+               setorder(data1,-prob)
+              return(list(total_count,data1))
+                
+}
+#return list of matrix with n rows and 4 column
+get_quadgram_words<-function(sentence){
+               data<-data_frame(word=unlist(sentence))
+                data1 <- data.table(data) %>%
+                unnest_tokens(quadgram,word, token = "ngrams", n = 4) %>%
+                separate(quadgram, c("word1", "word2","word3","word4"), sep = " ")
+                
+            data1<-copy(data1)   
+           data1<-data1[, `:=` (word3_count = .N), by = .(word1,word2,word3)]
+           data1<-data1[, `:=` (word4_count = .N), by = .(word1,word2,word3,word4)]
+                
+                #V<-nrow(data1)
+                total_count<-sum(data1$word4_count)
+                
+                data1<-data1 %>% mutate(prob=(log((word4_count+delta)-log(V*delta+word3_count))))  %>%      select(-c("word3_count","word4_count"))
+                data1<-unique(data1)
+               setorder(data1,-prob)
+              return(list(total_count,data1))
+}
+  
+
+update_model_unigram<-function(newsample) {
+ 
+     first_time<-FALSE   
+  
+  if(!file.exists(destfile1)) 
+    {
+     # print("i am here")
+      print(destfile1)
+      q1<-get_unigram_words(newsample) 
+      saveRDS(q1,file=destfile1)
+      first_time<-TRUE
+  }
+     else p1<-readRDS(file=destfile1)
+     
+ 
+  
+ if (!first_time)  
+ {
+  q1<-get_unigram_words(newsample)
+  
+  
+ q1[[2]]$size <- rep(q1[[1]],nrow(q1[[2]]))
+ p1[[2]]$size <- rep(p1[[1]],nrow(p1[[2]]))
+ totalsize<-q1[[1]]+p1[[1]]
+  
+  c1<-bind_rows(q1[[2]], p1[[2]]) %>%
+    group_by(word1) %>%
+    summarise_all(funs(weighted.mean(.,size)))  %>% select(-size)
+  setorder(c1,-prob)
+  c1<-list(totalsize,c1)
+ # print(c1)
+  
+  saveRDS(c1,file=destfile1)
+ 
+ }
+ 
+}
+
+update_model_bigram<-function(newsample) {
+ 
+     first_time<-FALSE   
+     
+  if(!file.exists(destfile2)) 
+     {
+      q2<-get_bigram_words(newsample) 
+      q2<-q2[[2]] %>% top_n(V*delta)
+      q2<-list(nrow(q2),q2)
+      saveRDS(q2,file=destfile2)
+      first_time<-TRUE
+  }
+     else {
+       p2<-readRDS(file=destfile2)
+      p2<-p2[[2]] %>% top_n(V*delta)
+     }
+  
+ if (!first_time)  
+ {
+ 
+  q2<-get_bigram_words(newsample)
+  q2<-q2[[2]] %>% top_n(V*delta)
+  
+   c2<-bind_rows(q2, p2)
+  totalsize<-nrow(c2)
+  
+  
+   data1<-copy(data.table(c2)%>% select(-c("prob")))
+   
+                data1<-data1[,  word1_count:= (.N), by = .(word1)]
+                data1<-data1[, word2_count := (.N), by = .(word1,word2)]
+                total_count<-sum(data1$word2_count)
+                data1<-data1 %>% mutate(prob=(log((word2_count+delta)-log(V*delta+word1_count))))  %>%      select(-c("word1_count","word2_count"))
+                data1<-unique(data1)
+              
+               setorder(data1,-prob)
+               c2<-data1
+            
+  c2<-list(totalsize,c2)
+
+  saveRDS(c2,file=destfile2)
+  
+ 
+ }
+ 
+}
+
+update_model_trigram<-function(newsample) {
+ 
+     first_time<-FALSE   
+  if(!file.exists(destfile3)) 
+     {
+      q2<-get_trigram_words(newsample) 
+      q2<-q2[[2]] %>% top_n(V*delta)
+      q2<-list(nrow(q2),q2)
+      saveRDS(q2,file=destfile3)
+      first_time<-TRUE
+  }
+     else {
+       p2<-readRDS(file=destfile3)
+      p2<-p2[[2]] %>% top_n(V*delta)
+     }
+  
+ if (!first_time)  
+ {
+  q2<-get_trigram_words(newsample)
+  q2<-q2[[2]] %>% top_n(V*delta)
+  c2<-bind_rows(q2, p2)
+  totalsize<-nrow(c2)
+  data1<-copy(data.table(c2)%>% select(-c("prob")))
+  data1<-data1[, `:=` (word2_count = .N), by = .(word1,word2)]
+                data1<-data1[, `:=` (word3_count = .N), by = .(word1,word2,word3)]
+                
+                #V<-nrow(data1)
+                total_count<-sum(data1$word3_count)
+                
+                data1<-data1 %>% mutate(prob=(log((word3_count+delta)-log(V*delta+word2_count))) ) %>%      select(-c("word2_count","word3_count"))
+                data1<-unique(data1)
+               setorder(data1,-prob)
+               c2<-data1
+  c2<-list(totalsize,c2)
+  saveRDS(c2,file=destfile3)
+ }
+}
+
+update_model_quadgram<-function(newsample) {
+ 
+     first_time<-FALSE   
+  if(!file.exists(destfile4)) 
+     {
+      q2<-get_quadgram_words(newsample) 
+      q2<-q2[[2]] %>% top_n(V*delta)
+      q2<-list(nrow(q2),q2)
+      saveRDS(q2,file=destfile4)
+      first_time<-TRUE
+  }
+     else {
+       p2<-readRDS(file=destfile4)
+      p2<-p2[[2]] %>% top_n(V*delta)
+     }
+  
+ if (!first_time)  
+ {
+  q2<-get_quadgram_words(newsample)
+  q2<-q2[[2]] %>% top_n(V*delta)
+  c2<-bind_rows(q2, p2)
+  totalsize<-nrow(c2)
+  data1<-copy(data.table(c2)%>% select(-c("prob")))
+  data1<-data1[, `:=` (word2_count = .N), by = .(word1,word2)]
+                data1<-data1[, `:=` (word3_count = .N), by = .(word1,word2,word3)]
+                
+                #V<-nrow(data1)
+                total_count<-sum(data1$word3_count)
+                
+                data1<-data1 %>% mutate(prob=(log((word3_count+delta)-log(V*delta+word2_count))))  %>%      select(-c("word2_count","word3_count"))
+                data1<-unique(data1)
+               setorder(data1,-prob)
+               c2<-data1
+  c2<-list(totalsize,c2)
+  saveRDS(c2,file=destfile4)
+ }
+}
+
+
+
+
+```
+
+
+# Train Model
+We have used 15 samples out of 20 samples to train the model
+
+```{r,message=FALSE,eval = FALSE}
+
+#read sample 1
+
+for (i in 1:15) {
+  #print("i am in loop")
+file_name<-paste0("C:/Users/sanjayx/Desktop/coursera/swiftkey/Coursera-SwiftKey/final/en_US/twitter",i,".txt")
+ftwitter<-file(file_name, "r")
+stwitter<-readLines(ftwitter)
+close(ftwitter)
+#print( "reading first file")
+file_name<-paste0("C:/Users/sanjayx/Desktop/coursera/swiftkey/Coursera-SwiftKey/final/en_US/news",i,".txt")
+fnews<-file(file_name, "r")
+snews<-readLines(fnews)
+close(fnews)
+
+file_name<-paste0("C:/Users/sanjayx/Desktop/coursera/swiftkey/Coursera-SwiftKey/final/en_US/blogs",i,".txt")
+fnews<-file(file_name, "r")
+sblogs<-readLines(fblogs)
+close(fblogs)
+
+data<-paste(sblogs, snews, stwitter)
+#print("cleaning data")
+data<-clean_data(data)
+#print("updating model")
+#update_model_unigram(data)
+update_model_bigram(data)
+#update_model_trigram(data)
+#update_model_quadgram(data)
+
+}
+
+
+```
+# Predict Next Word
+predict word reccursively calls lower n-gram if extact match is not found
+
+```{r,message=FALSE}
+predictWord1<-function (nword,data1) {
+  ngram<-1
+  next_word<-""
+  prob<-0
+  d<-data.table(next_word,prob,ngram)
+  nword<-as.character(nword)
+  #data1<-readRDS(destfile1)
+  data1<-data1[[2]]
+ 
+  filtered_word<-data1 %>% filter(startsWith(word1,nword)) %>% top_n(3,prob)
+  # if (length(filtered_word$word1)>=3){
+  next_word<-filtered_word$word1
+  prob<-filtered_word$prob
+  
+if (length(next_word)>0) {
+  ngram<-rep(ngram, each =length(next_word) )
+  d<-data.table(next_word,prob,ngram)
+}
+ 
+  
+  if (nrow(d)>3)  d<-d[1:3,]          
+    
+    return(d)
+}
+
+predictWord2<-function (word,data1,data2) {
+ # print("i am in predictword2")
+#  print(word)
+  ngram<-2
+   prob<-0
+   #d<-data.table(next_word,prob,ngram)
+  word<-as.character(word)
+  #data2<-readRDS(destfile2)
+  data2<-data2[[2]]
+  next_word<-""
+  filtered_bigram<-data2 %>% filter(word1==word)  %>% top_n(3,prob)
+  #next_word<-filtered_bigram$word2[1]
+        
+                prev_word1<-filtered_bigram$word1
+                next_word<-filtered_bigram$word2
+                prob<-filtered_bigram$prob
+                if (length(next_word)>0) {
+  ngram<-rep(ngram, each =length(next_word) )
+  d<-data.table(prev_word1,next_word,prob,ngram)
+}
+                
+    
+  
+   if (is.na(next_word[1]))  {
+    d<-predictWord1(word,data1)
+    
+   }
+ 
+  if (nrow(d)>3)  d<-d[1:3,]          
+    
+    return(d)
+}
+
+predictWord3<-function (nword1,nword2,data1,data2,data3) {
+  ngram<-3
+   prob<-0
+  next_word<-""
+  nword1<-as.character(nword1)
+   nword2<-as.character(nword2)
+ # data3<-readRDS(destfile3)
+  data3<-data3[[2]]
+  filtered_trigram<-data3 %>% filter((word1==nword1)&(word2==nword2))  %>% top_n(3,prob)
+  
+  prev_word1<-filtered_trigram$word1
+  prev_word2<-filtered_trigram$word2
+  next_word<-filtered_trigram$word3
+  prob<-filtered_trigram$prob
+  ngram<-rep(ngram, each =length(next_word))
+   if (length(next_word)>0) {
+  ngram<-rep(ngram, each =length(next_word) )
+  d<-data.table(prev_word1,prev_word2,next_word,prob,ngram)
+}
+  
+  
+  if (is.na(next_word[1])) {
+    d<-predictWord2(nword2,data1,data2)
+    
+  }
+ 
+  
+  if (nrow(d)>3)  d<-d[1:3,]          
+    
+    return(d)
+}
+predictWord4<-function (nword1,nword2,nword3,data1,data2,data3,data4) {
+  ngram<-4
+   prob<-0
+  next_word<-""
+  nword1<-as.character(nword1)
+   nword2<-as.character(nword2)
+   nword3<-as.character(nword3)
+  
+  #data4<-readRDS(destfile4)
+  
+  data4<-data4[[2]]
+  filtered_fourgram<-data4 %>% filter((word1==nword1)&(word2==nword2)&(word3==nword3)) %>% top_n(3,prob)
+  prev_word1<-filtered_fourgram$word1
+   prev_word2<-filtered_fourgram$word2
+    prev_word3<-filtered_fourgram$word3
+  next_word<-filtered_fourgram$word4
+  prob<-filtered_fourgram$prob
+  if (length(next_word)>0) {
+ ngram<-rep(ngram, each =length(next_word))
+ d<-data.table(prev_word1,prev_word2,prev_word3,next_word,prob,ngram) 
+  }
+  
+  if (is.na(next_word[1])) {
+    d<-predictWord3(nword2,nword3,data1,data2,data3)
+    
+    
+     
+  }
+ 
+  
+    
+  if (nrow(d)>3)  d<-d[1:3,]          
+    
+    return(d)
+}
+
+predictNextWord<-function(sentence,data1,data2,data3,data4) {
+     
+   
+     
+    data<-data_frame(word=unlist(clean_data(sentence)))
+                 data=data_frame(word=unlist(sentence))
+                words <- data.table(data) %>%
+                unnest_tokens(word1,word, token = "ngrams", n = 1)
+               # print(words)
+                n<-nrow(words)
+                
+if (n==1) next_word<-predictWord2(words[n,1],data1,data2)
+if (n==2) next_word<-predictWord3(words[n-1,1],words[n,1],data1,data2,data3)
+if (n>=3) next_word<-predictWord4(words[n-2,1],words[n-1,1],words[n,1],data1,data2,data3,data4)
+                
+
+                
+return(next_word)
+}
+                
+model_bigram_accuracy<- function(sample,data1,data2) {
+  count<-0
+  data<-data_frame(word=unlist(sample))
+                data1 <- data.table(data) %>%
+                unnest_tokens(bigram,word, token = "ngrams", n = 2) %>%
+                separate(bigram, c("word1", "word2"), sep = " ") 
+    for (i in 1:100){
+      nextword<-predictWord2(data1[i]$word1,data1,data2)
+      if (!is.na(nextword) & (nextword==data1[i]$word1)) count<-count+1 
+    }
+                return (count)
+}
+
+```
+
+#model validation
+We randomly select 100 words for validating the model
+
+```{r,message=FALSE,eval = FALSE}
+
+for (i in 16:16) {
+  print("i am in loop")
+file_name<-paste0("C:/Users/sanjayx/Desktop/coursera/swiftkey/Coursera-SwiftKey/final/en_US/twitter",i,".txt")
+ftwitter<-file(file_name, "r")
+stwitter<-readLines(ftwitter)
+close(ftwitter)
+print( "reading first file")
+file_name<-paste0("C:/Users/sanjayx/Desktop/coursera/swiftkey/Coursera-SwiftKey/final/en_US/news",i,".txt")
+fnews<-file(file_name, "r")
+snews<-readLines(fnews)
+close(fnews)
+
+file_name<-paste0("C:/Users/sanjayx/Desktop/coursera/swiftkey/Coursera-SwiftKey/final/en_US/blogs",i,".txt")
+fnews<-file(file_name, "r")
+sblogs<-readLines(fblogs)
+close(fblogs)
+
+data<-paste(sblogs, snews, stwitter)
+print("cleaning data")
+data<-clean_data(data)
+#print(model_bigram_accuracy(data))
+}
+
+```
+
+# Summary
+
+to predict the next word, we have used n-gram language model analysis. The probablity was computed for occurence of 1-gram, 2-gram, 3-gram and 4-gram words. We used laplac smoothing function to take care of probablty related to unobserved words. Final model was loaded into memory before lanching shinny apps. The model can be further improved by considering the sentence boundary, Using a better smoothing function such as KN method,Superimposing language grammar and spell correction, Tuning model parameter. 
+
+
+# Reference
+https://jangorecki.github.io/blog/2015-12-11/Solve-common-R-problems-efficiently-with-data.table.html
+http://ssli.ee.washington.edu/WS07/notes/ngrams.pdf
+https://lagunita.stanford.edu/c4x/Engineering/CS-224N/asset/slp4.pdf
