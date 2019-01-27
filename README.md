@@ -13,9 +13,11 @@ The goal of this exercise is to create a product to highlight the prediction alg
      * nextword/global.R global parameters 
      * nextword/predictNextword.R helper function
      * nextword/data: model data
-     
-    * final_project.rmd : rmd markup file with code 
-    * datacapstone.html: Html file and report
-     
+ * Model Generation
+    * Final_project_week3.Rmd: rmd markup file with code 
+    * Final_project_week3.html: Html file and report 
+ * Final Presentation
+    * Rstudio Presentation
+    * html file output
    
   
