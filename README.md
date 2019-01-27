@@ -29,3 +29,6 @@ The Sinny Apps <https://sanjayk98.shinyapps.io/NextWord/>
 - Type one word, it will predict next pair (Ex: Happy Holiday)
 - Type partial sentence, it will predict next word
 - It shows top 3 likely words and includes log probablity and N-Gram being used
+
+# Reference
+https://rpubs.com/sanjayk98/461828
